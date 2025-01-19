@@ -1,0 +1,9 @@
+﻿Name: Test
+Host: IpOrHostname.com
+TcpPort: 3075
+UdpPort: 3074
+Username: HereUsername
+Password: HerePassword
+Interface: null
+UseTcp: false
+PingDelay: 5000
