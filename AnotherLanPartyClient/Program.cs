@@ -72,41 +72,28 @@ if (openVpnProcess is null)
     LogError("无法启动OpenVPN进程");
     Exit();
 }
-
-Process.GetCurrentProcess().Exited += (sender, args) =>
-{
-    openVpnProcess.Kill();
-    openVpnProcess.WaitForExit();
-};
-
-Task<PingReply>? pingTask = null;
-var pingPayload = Enumerable.Range(0, 32).Select(i => (byte)('a' + i % 23)).ToArray();
-var pingOptions = new PingOptions();
-DateTime lastPingTime = DateTime.MinValue;
-ConcurrentQueue<string> ovpnOutputQueue = new();
-
 openVpnProcess.OutputDataReceived += OnProcessData;
 openVpnProcess.ErrorDataReceived += OnProcessData;
+openVpnProcess.BeginOutputReadLine();
+openVpnProcess.BeginErrorReadLine();
 
-while (true)
+var pingPayload = Enumerable.Range(0, 32).Select(i => (byte)('a' + i % 23)).ToArray();
+var pingOptions = new PingOptions();
+
+while (!Environment.HasShutdownStarted && !openVpnProcess.HasExited)
 {
-    if (pingTask is null || pingTask.IsCompleted)
-    {
-        if (pingTask is { IsCompleted: true })
-        {
-            var pingResult = pingTask.Result;
-            LogInfo(pingResult.Status == IPStatus.Success ? $"当前延迟为 {pingResult.RoundtripTime}ms" : $"连接失败: {pingResult.Status}");
-            lastPingTime = DateTime.Now;
-            pingTask = null;
-        }
-
-        if (DateTime.Now - lastPingTime >= TimeSpan.FromMilliseconds(config.PingInterval))
-            pingTask = new Ping().SendPingAsync(ip, TimeSpan.FromSeconds(10), pingPayload, pingOptions);
-    }
-
-    while (ovpnOutputQueue.TryDequeue(out var message))
-        LogOpenVPN(message);
+    var pingReply = await new Ping().SendPingAsync(ip, TimeSpan.FromSeconds(10), pingPayload, pingOptions);
+    LogInfo(pingReply.Status == IPStatus.Success ? $"当前延迟为 {pingReply.RoundtripTime}ms" : $"连接失败: {pingReply.Status}");
+    await Task.Delay((int)config.PingInterval);
 }
+
+if (openVpnProcess.HasExited)
+{
+    LogError($"OpenVPN进程意外退出，{openVpnProcess.ExitCode}");
+}
+
+openVpnProcess.Kill();
+openVpnProcess.WaitForExit();
 
 return;
 
@@ -114,7 +101,7 @@ return;
 void OnProcessData(object sender, DataReceivedEventArgs e)
 {
     if (e.Data is {} content)
-        ovpnOutputQueue.Enqueue(content);
+        LogOpenVPN(content);
 }
 
 static string GetOpenVpnConfig(ConfigModel config, IPAddress serverIp)
@@ -128,7 +115,6 @@ static string GetOpenVpnConfig(ConfigModel config, IPAddress serverIp)
              remote {serverIp} {(config.UseTcp ? config.TcpPort : config.UdpPort)}
              resolv-retry infinite
              nobind
-             persist-key
              #persist-tun
              remote-cert-tls server
              #comp-lzo
@@ -139,8 +125,7 @@ static string GetOpenVpnConfig(ConfigModel config, IPAddress serverIp)
              cipher none
              auth none
              auth-user-pass {passwordFileName}
-             max-routes 9999
-             socks-proxy-retry
+             connect-retry-max 9999
              reneg-sec 0
              #mute-replay-warnings
              #route-delay 2
@@ -150,7 +135,6 @@ static string GetOpenVpnConfig(ConfigModel config, IPAddress serverIp)
              {(config.UseTcp ? "#" : "")}fragment 1356
              mssfix 1356
              management localhost 7506
-             log openvpn-log.log
              
              
              <ca>
@@ -202,7 +186,7 @@ static void LogError(string message)
 
 [MethodImpl(MethodImplOptions.AggressiveInlining)]
 static void LogOpenVPN(string message)
-    => AnsiConsole.MarkupLine($"[blue][[{DateTime.Now:hh:mm:ss}]][[OpenVPN]] {message}[/]");
+    => AnsiConsole.MarkupLine($"[blue][[{DateTime.Now:hh:mm:ss}]][[OpenVPN]] {message.EscapeMarkup()}[/]");
 
 [DoesNotReturn]
 static void Exit(bool noInteraction = false)
