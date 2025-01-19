@@ -6,4 +6,4 @@ Username: HereUsername
 Password: HerePassword
 Interface: null
 UseTcp: false
-PingDelay: 5000
+PingInterval: 5000

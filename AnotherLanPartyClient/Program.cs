@@ -82,6 +82,7 @@ Process.GetCurrentProcess().Exited += (sender, args) =>
 Task<PingReply>? pingTask = null;
 var pingPayload = Enumerable.Range(0, 32).Select(i => (byte)('a' + i % 23)).ToArray();
 var pingOptions = new PingOptions();
+DateTime lastPingTime = DateTime.MinValue;
 ConcurrentQueue<string> ovpnOutputQueue = new();
 
 openVpnProcess.OutputDataReceived += OnProcessData;
@@ -91,13 +92,16 @@ while (true)
 {
     if (pingTask is null || pingTask.IsCompleted)
     {
-        if (pingTask is not null)
+        if (pingTask is { IsCompleted: true })
         {
             var pingResult = pingTask.Result;
             LogInfo(pingResult.Status == IPStatus.Success ? $"当前延迟为 {pingResult.RoundtripTime}ms" : $"连接失败: {pingResult.Status}");
+            lastPingTime = DateTime.Now;
+            pingTask = null;
         }
 
-        pingTask = new Ping().SendPingAsync(ip, TimeSpan.FromSeconds(10), pingPayload, pingOptions);
+        if (DateTime.Now - lastPingTime >= TimeSpan.FromMilliseconds(config.PingInterval))
+            pingTask = new Ping().SendPingAsync(ip, TimeSpan.FromSeconds(10), pingPayload, pingOptions);
     }
 
     while (ovpnOutputQueue.TryDequeue(out var message))

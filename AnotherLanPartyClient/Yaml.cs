@@ -24,5 +24,5 @@ public class ConfigModel
 
     [YamlMember] public bool UseTcp { get; set; } = false;
 
-    [YamlMember] public uint PingDelay { get; set; } = 5000;
+    [YamlMember] public uint PingInterval { get; set; } = 5000;
 }
